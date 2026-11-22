@@ -4,6 +4,7 @@ import {
   Text,
   View,
   TouchableOpacity,
+  Modal,
   StatusBar,
   Alert,
   Platform,
@@ -18,9 +19,9 @@ import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as NavigationBar from 'expo-navigation-bar';
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 
 import { BRAND } from './src/theme/brand';
 import {
@@ -29,15 +30,12 @@ import {
   splitScriptIntoPhrases,
   formatTime,
 } from './src/utils/scriptUtils';
-import { useVoiceActivity } from './src/hooks/useVoiceActivity';
 import { CameraSurface } from './src/components/CameraSurface';
 import { PrompterOverlay } from './src/components/PrompterOverlay';
 import { SettingsModal } from './src/components/SettingsModal';
 import { ScriptEditorModal } from './src/components/ScriptEditorModal';
-import { TakesModal } from './src/components/TakesModal';
 
 function PrompterScreen() {
-  useKeepAwake();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
 
@@ -52,6 +50,9 @@ function PrompterScreen() {
   const contentHeightRef = useRef(0);
   const containerHeightRef = useRef(0);
   const phraseLayoutsRef = useRef({});
+  const currentPhraseIdxRef = useRef(0);
+  const phraseProgressRef = useRef(0);
+  const lastProgressUiSyncRef = useRef(0);
 
   // Estado principal
   const [facing, setFacing] = useState('front');
@@ -60,49 +61,37 @@ function PrompterScreen() {
   const [countdown, setCountdown] = useState(null);
   const [recordSeconds, setRecordSeconds] = useState(0);
 
-  // Modos e progresso
-  const [prompterMode, setPrompterMode] = useState('voice_phrases');
+  // Configurações do Teleprompter (Timer contínuo ou por frases)
+  const [script, setScript] = useState(DEFAULT_SCRIPT);
+  const [scrollMode, setScrollMode] = useState('phrases'); // 'continuous' | 'phrases'
   const [currentPhraseIdx, setCurrentPhraseIdx] = useState(0);
   const [phraseProgress, setPhraseProgress] = useState(0);
-  const phraseProgressRef = useRef(0);
-  const currentPhraseIdxRef = useRef(0);
-
-  // Configurações do Estúdio
-  const [script, setScript] = useState(DEFAULT_SCRIPT);
-  const [speed, setSpeed] = useState(4);
+  const [speed, setSpeed] = useState(3.4); // 1.0 a 10.0 em passos de 0.2
+  const [countdownSeconds, setCountdownSeconds] = useState(3); // 0 (OFF) ou 3 a 10
   const [fontSize, setFontSize] = useState(24);
+  const [textAlign, setTextAlign] = useState('left');
   const [bgOpacity, setBgOpacity] = useState(0.5);
   const [boxSizeMode, setBoxSizeMode] = useState(1);
-  const [micSensitivity, setMicSensitivity] = useState(2);
-  const [useCountdown, setUseCountdown] = useState(true);
+
+  const phrases = useMemo(() => splitScriptIntoPhrases(script), [script]);
 
   // Modais e abas
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [settingsTab, setSettingsTab] = useState('voice');
+  const [settingsTab, setSettingsTab] = useState('scroll');
   const [editorVisible, setEditorVisible] = useState(false);
-  const [takesModalVisible, setTakesModalVisible] = useState(false);
   const [recordedTakes, setRecordedTakes] = useState([]);
   const [lastSavedToast, setLastSavedToast] = useState(null);
 
-  const phrases = useMemo(() => splitScriptIntoPhrases(script), [script]);
-  const isVoiceMode =
-    prompterMode === 'voice_phrases' || prompterMode === 'voice_scroll';
+  // Mantém a tela acesa no celular
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    activateKeepAwakeAsync('olv-prompter').catch(() => {});
+    return () => {
+      deactivateKeepAwake('olv-prompter');
+    };
+  }, []);
 
-  const {
-    voiceLevel,
-    isSpeakingNow,
-    isSpeakingRef,
-    lastSpokenTimestampRef,
-    forceStartStream,
-    simulatedSpeaking,
-    setSimulatedSpeaking,
-  } = useVoiceActivity({
-    isActive: isScrolling && isVoiceMode,
-    micGranted: Platform.OS === 'web' || micPermission?.granted,
-    micSensitivity,
-  });
-
-  // Carrega Space Grotesk no Preview Web (mesma tipografia de fernandodeoliveira.pro)
+  // Carrega Space Grotesk no Preview Web
   useEffect(() => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const id = 'fo-space-grotesk-font';
@@ -126,26 +115,49 @@ function PrompterScreen() {
     }
   }, []);
 
-  // Carregar roteiro salvo
+  // Carregar roteiro e preferências salvas
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((saved) => {
         if (saved !== null) setScript(saved);
       })
       .catch(() => {});
+
+    AsyncStorage.getItem('@olv_prompter_prefs_v1')
+      .then((raw) => {
+        if (!raw) return;
+        const p = JSON.parse(raw);
+        if (p.scrollMode === 'continuous' || p.scrollMode === 'phrases') {
+          setScrollMode(p.scrollMode);
+        }
+        if (typeof p.speed === 'number') setSpeed(p.speed);
+        if (typeof p.countdownSeconds === 'number') setCountdownSeconds(p.countdownSeconds);
+        if (typeof p.fontSize === 'number') setFontSize(p.fontSize);
+        if (typeof p.textAlign === 'string') setTextAlign(p.textAlign);
+        if (typeof p.bgOpacity === 'number') setBgOpacity(p.bgOpacity);
+        if (typeof p.boxSizeMode === 'number') setBoxSizeMode(p.boxSizeMode);
+      })
+      .catch(() => {});
   }, []);
 
-  const saveScript = async (newText) => {
-    setScript(newText);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, newText);
-    } catch (e) {}
-  };
+  // Salvar preferências automaticamente
+  useEffect(() => {
+    const payload = JSON.stringify({
+      scrollMode,
+      speed,
+      countdownSeconds,
+      fontSize,
+      textAlign,
+      bgOpacity,
+      boxSizeMode,
+    });
+    AsyncStorage.setItem('@olv_prompter_prefs_v1', payload).catch(() => {});
+  }, [scrollMode, speed, countdownSeconds, fontSize, textAlign, bgOpacity, boxSizeMode]);
 
-  const openSettings = (tab = 'voice') => {
-    setSettingsTab(tab);
-    setSettingsVisible(true);
-  };
+  // Limpa cache de posições Y das frases quando o layout do texto muda
+  useEffect(() => {
+    phraseLayoutsRef.current = {};
+  }, [script, fontSize, textAlign]);
 
   const scrollToPhrase = useCallback((idx) => {
     currentPhraseIdxRef.current = idx;
@@ -160,44 +172,45 @@ function PrompterScreen() {
     });
   }, []);
 
-  // Motor de avanço (Frases por Voz, Contínuo por Voz e Timer)
+  const saveScript = async (newText) => {
+    setScript(newText);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, newText);
+    } catch (e) {}
+  };
+
+  // Motor de rolagem por Timer (Contínuo ou Por Frases com cadência)
   useEffect(() => {
     if (!isScrolling) return;
 
     const tickMs = 30;
-    const interval = setInterval(() => {
-      const speaking = isSpeakingRef.current;
-      const silenceMs = Date.now() - lastSpokenTimestampRef.current;
+    const fontScale = fontSize / 24;
+    const stepPerTick = (0.25 + Math.pow(speed - 1, 1.28) * 0.22) * fontScale;
 
-      if (prompterMode === 'voice_phrases') {
+    const interval = setInterval(() => {
+      if (scrollMode === 'phrases') {
         const idx = currentPhraseIdxRef.current;
         if (idx >= phrases.length) {
           setIsScrolling(false);
           return;
         }
-
         const currentText = phrases[idx] || '';
         const wordCount = Math.max(2, currentText.split(/\s+/).length);
-        const msPerWord = Math.max(130, 520 - speed * 42);
-        const targetDurationMs = wordCount * msPerWord;
+        const effectiveUnits = Math.max(wordCount, Math.round(currentText.length / 5.5));
+        // 1.0x (~680ms/unidade) -> 3.4x (~480ms) -> 10.0x (~150ms)
+        const msPerUnit = Math.max(140, 680 - (speed - 1) * 59);
+        const targetDurationMs = effectiveUnits * msPerUnit;
 
-        if (speaking) {
-          const nextProg = Math.min(1, phraseProgressRef.current + tickMs / targetDurationMs);
-          phraseProgressRef.current = nextProg;
+        const nextProg = Math.min(1, phraseProgressRef.current + tickMs / targetDurationMs);
+        phraseProgressRef.current = nextProg;
+
+        const now = Date.now();
+        if (now - lastProgressUiSyncRef.current >= 95 || nextProg >= 1) {
+          lastProgressUiSyncRef.current = now;
           setPhraseProgress(nextProg);
+        }
 
-          if (nextProg >= 1) {
-            if (idx + 1 < phrases.length) {
-              scrollToPhrase(idx + 1);
-            } else {
-              setIsScrolling(false);
-            }
-          }
-        } else if (
-          phraseProgressRef.current >= 0.68 &&
-          silenceMs >= 380 &&
-          silenceMs <= 1500
-        ) {
+        if (nextProg >= 1) {
           if (idx + 1 < phrases.length) {
             scrollToPhrase(idx + 1);
           } else {
@@ -207,12 +220,7 @@ function PrompterScreen() {
         return;
       }
 
-      if (prompterMode === 'voice_scroll' && !speaking) {
-        return;
-      }
-
-      const pixelsPerTick = speed * 0.38;
-      const nextOffset = scrollOffsetRef.current + pixelsPerTick;
+      const nextOffset = scrollOffsetRef.current + stepPerTick;
       if (maxScrollRef.current > 0 && nextOffset >= maxScrollRef.current) {
         scrollOffsetRef.current = maxScrollRef.current;
         setIsScrolling(false);
@@ -223,7 +231,23 @@ function PrompterScreen() {
     }, tickMs);
 
     return () => clearInterval(interval);
-  }, [isScrolling, prompterMode, speed, phrases, scrollToPhrase]);
+  }, [isScrolling, scrollMode, speed, fontSize, phrases, scrollToPhrase]);
+
+  // Contagem regressiva (3s a 10s -> inicia gravação)
+  useEffect(() => {
+    if (countdown === null) return;
+
+    const timer = setTimeout(() => {
+      if (countdown > 1) {
+        setCountdown((c) => (c !== null ? c - 1 : null));
+      } else {
+        setCountdown(null);
+        startCameraRecording();
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   // Timer da gravação
   useEffect(() => {
@@ -257,14 +281,40 @@ function PrompterScreen() {
         await MediaLibrary.requestPermissionsAsync(true, ['video']);
       } catch {}
       if (MediaLibrary.Asset?.create) {
-        await MediaLibrary.Asset.create(uri);
-      } else {
-        await MediaLibrary.saveToLibraryAsync(uri);
+        const asset = await MediaLibrary.Asset.create(uri);
+        return { saved: true, assetId: asset?.id || null };
       }
-      return true;
+      return { saved: false, assetId: null };
     } catch {
-      return false;
+      return { saved: false, assetId: null };
     }
+  };
+
+  const handleDeleteTake = async (take) => {
+    const performDelete = async () => {
+      try {
+        if (Platform.OS !== 'web' && take.assetId && MediaLibrary.Asset) {
+          const asset = new MediaLibrary.Asset(take.assetId);
+          await asset.delete();
+        }
+      } catch (e) {}
+      setRecordedTakes((prev) => prev.filter((t) => t.id !== take.id));
+      setLastSavedToast((curr) => (curr?.id === take.id ? null : curr));
+    };
+
+    if (Platform.OS === 'web') {
+      performDelete();
+      return;
+    }
+
+    Alert.alert(
+      'Deletar vídeo?',
+      'Este take será removido da lista e da galeria do celular.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Deletar', style: 'destructive', onPress: performDelete },
+      ]
+    );
   };
 
   const shareVideoFile = async (uri) => {
@@ -298,9 +348,6 @@ function PrompterScreen() {
     try {
       setIsRecording(true);
       setIsScrolling(true);
-      if (isVoiceMode) {
-        setTimeout(() => forceStartStream(), 250);
-      }
 
       const startTime = Date.now();
       const video = await cameraRef.current.recordAsync();
@@ -309,10 +356,11 @@ function PrompterScreen() {
       setIsScrolling(false);
 
       if (video?.uri) {
-        const savedToGallery = await saveVideoToGallery(video.uri);
+        const { saved: savedToGallery, assetId } = await saveVideoToGallery(video.uri);
         const newTake = {
           id: String(Date.now()),
           uri: video.uri,
+          assetId,
           duration: durationSec,
           createdAt: new Date().toLocaleTimeString([], {
             hour: '2-digit',
@@ -341,6 +389,7 @@ function PrompterScreen() {
         const mockTake = {
           id: String(Date.now()),
           uri: 'preview-web.mp4',
+          assetId: null,
           duration: Math.max(1, recordSeconds),
           createdAt: new Date().toLocaleTimeString([], {
             hour: '2-digit',
@@ -361,22 +410,16 @@ function PrompterScreen() {
       return;
     }
 
-    if (countdown !== null) return;
-    setSettingsVisible(false);
+    if (countdown !== null) {
+      setCountdown(null);
+      return;
+    }
 
-    if (useCountdown) {
-      setCountdown(3);
-      let current = 3;
-      const timer = setInterval(() => {
-        current -= 1;
-        if (current > 0) {
-          setCountdown(current);
-        } else {
-          clearInterval(timer);
-          setCountdown(null);
-          startCameraRecording();
-        }
-      }, 1000);
+    setSettingsVisible(false);
+    setIsScrolling(false);
+
+    if (countdownSeconds > 0) {
+      setCountdown(countdownSeconds);
     } else {
       startCameraRecording();
     }
@@ -400,7 +443,7 @@ function PrompterScreen() {
               olv<Text style={styles.permissionTitleLight}> prompter</Text>
             </Text>
             <Text style={styles.permissionText}>
-              Libere o acesso à câmera e ao microfone para gravar em tela cheia com rolagem guiada pela sua voz.
+              Libere o acesso à câmera e ao microfone para gravar vídeos em tela cheia com teleprompter.
             </Text>
             <TouchableOpacity style={styles.permissionButton} onPress={handleGrantPermissions}>
               <Text style={styles.permissionButtonText}>PERMITIR CÂMERA E MICROFONE ↗</Text>
@@ -425,58 +468,59 @@ function PrompterScreen() {
         <StatusBar hidden translucent backgroundColor="transparent" />
 
         {/* CÂMERA */}
-        <CameraSurface
-          cameraRef={cameraRef}
-          facing={facing}
-          isVoiceMode={isVoiceMode}
-          isScrolling={isScrolling}
-          simulatedSpeaking={simulatedSpeaking}
-          onToggleSimulatedSpeaking={() => setSimulatedSpeaking((s) => !s)}
-        />
+        <CameraSurface cameraRef={cameraRef} facing={facing} />
 
-        {/* TELEPROMPTER NO TOPO */}
+        {/* TELEPROMPTER NO TOPO — 100% LARGURA, SÓ O TEXTO */}
         <PrompterOverlay
           topOffset={Math.max(insets.top * 0.35, 10)}
           height={currentPrompterHeight}
           bgOpacity={bgOpacity}
-          prompterMode={prompterMode}
-          isVoiceMode={isVoiceMode}
-          isSpeakingNow={isSpeakingNow}
+          scrollMode={scrollMode}
           isRecording={isRecording}
           isScrolling={isScrolling}
-          phrases={phrases}
           script={script}
+          phrases={phrases}
           currentPhraseIdx={currentPhraseIdx}
           phraseProgress={phraseProgress}
           fontSize={fontSize}
-          phraseScrollRef={phraseScrollRef}
+          textAlign={textAlign}
           scrollRef={scrollRef}
+          phraseScrollRef={phraseScrollRef}
           phraseLayoutsRef={phraseLayoutsRef}
           scrollOffsetRef={scrollOffsetRef}
           contentHeightRef={contentHeightRef}
           containerHeightRef={containerHeightRef}
           updateMaxScroll={updateMaxScroll}
-          onScrollToPhrase={scrollToPhrase}
-          onResetScroll={resetScroll}
-          onToggleScroll={() => setIsScrolling((prev) => !prev)}
-          onOpenVoiceSettings={() => openSettings('voice')}
+          onSelectPhrase={scrollToPhrase}
         />
 
-        {/* CONTAGEM REGRESSIVA */}
-        {countdown !== null && (
-          <View style={styles.countdownOverlay} pointerEvents="none">
+        {/* CONTAGEM REGRESSIVA EM MODAL TRANSPARENTE (SEMPRE VISÍVEL POR CIMA DA CÂMERA NO ANDROID) */}
+        <Modal
+          visible={countdown !== null}
+          transparent={true}
+          animationType="fade"
+          statusBarTranslucent={true}
+          onRequestClose={() => setCountdown(null)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.countdownOverlay}
+            onPress={() => setCountdown(null)}
+          >
             <View style={styles.countdownBox}>
+              <Text style={styles.countdownLabel}>PREPARE-SE</Text>
               <Text style={styles.countdownNumber}>{countdown}</Text>
+              <Text style={styles.countdownCancel}>TOQUE PARA CANCELAR</Text>
             </View>
-          </View>
-        )}
+          </TouchableOpacity>
+        </Modal>
 
-        {/* TOAST DE VÍDEO GRAVADO */}
+        {/* TOAST DE VÍDEO GRAVADO (COM DELETAR E ENVIAR) */}
         {lastSavedToast && !isRecording && (
           <View
             style={[
               styles.savedCardToast,
-              { bottom: Math.max(insets.bottom, 12) + 148 },
+              { bottom: Math.max(insets.bottom, 12) + 108 },
             ]}
           >
             <View style={styles.savedCardLeft}>
@@ -490,90 +534,39 @@ function PrompterScreen() {
                 </Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={styles.savedCardShareBtn}
-              onPress={() => shareVideoFile(lastSavedToast.uri)}
-            >
-              <Text style={styles.savedCardShareText}>ENVIAR ↗</Text>
-            </TouchableOpacity>
+            <View style={styles.savedCardActions}>
+              <TouchableOpacity
+                style={styles.savedCardDeleteBtn}
+                onPress={() => handleDeleteTake(lastSavedToast)}
+              >
+                <Feather name="trash-2" size={14} color={BRAND.rec} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.savedCardShareBtn}
+                onPress={() => shareVideoFile(lastSavedToast.uri)}
+              >
+                <Text style={styles.savedCardShareText}>ENVIAR ↗</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
-        {/* HUD INFERIOR EDITORIAL */}
-        <View style={[styles.bottomHud, { paddingBottom: Math.max(insets.bottom + 10, 20) }]}>
-          {/* Telemetria compacta clicável */}
-          {!isRecording && (
-            <View style={styles.telemetryStrip}>
-              <TouchableOpacity
-                style={styles.telemetryCell}
-                onPress={() => openSettings('voice')}
-              >
-                <Text style={styles.telemetryKey}>RITMO</Text>
-                <Text style={styles.telemetryVal}>{speed}X</Text>
-              </TouchableOpacity>
+        {/* HUD INFERIOR ULTRA LIMPO (APENAS 3 CONTROLES: ROTEIRO | REC | AJUSTES) */}
+        <View style={[styles.bottomHud, { paddingBottom: Math.max(insets.bottom + 14, 24) }]}>
+          <View style={styles.minimalDockRow}>
+            {/* Esquerda: Roteiro */}
+            <TouchableOpacity
+              style={[styles.minimalBtn, isRecording && styles.dockBtnHidden]}
+              disabled={isRecording}
+              onPress={() => {
+                setIsScrolling(false);
+                setEditorVisible(true);
+              }}
+            >
+              <Feather name="edit-3" size={20} color={BRAND.white} />
+            </TouchableOpacity>
 
-              <View style={styles.telemetryDivider} />
-
-              <TouchableOpacity
-                style={styles.telemetryCell}
-                onPress={() => openSettings('visual')}
-              >
-                <Text style={styles.telemetryKey}>FONTE</Text>
-                <Text style={styles.telemetryVal}>{fontSize}PX</Text>
-              </TouchableOpacity>
-
-              <View style={styles.telemetryDivider} />
-
-              <TouchableOpacity
-                style={styles.telemetryCell}
-                onPress={() => openSettings('camera')}
-              >
-                <Text style={styles.telemetryKey}>TIMER</Text>
-                <Text
-                  style={[
-                    styles.telemetryVal,
-                    useCountdown && { color: BRAND.gold },
-                  ]}
-                >
-                  {useCountdown ? '3S' : 'OFF'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Dock Principal */}
-          <View style={styles.dockRow}>
-            <View style={styles.dockSideGroup}>
-              <TouchableOpacity
-                style={[styles.dockBtn, isRecording && styles.dockBtnHidden]}
-                disabled={isRecording}
-                onPress={() => {
-                  setIsScrolling(false);
-                  setEditorVisible(true);
-                }}
-              >
-                <Feather name="edit-3" size={18} color={BRAND.white} />
-                <Text style={styles.dockBtnLabel}>ROTEIRO</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.dockBtn, isRecording && styles.dockBtnHidden]}
-                disabled={isRecording}
-                onPress={() => setTakesModalVisible(true)}
-              >
-                <View>
-                  <Feather name="film" size={18} color={BRAND.white} />
-                  {recordedTakes.length > 0 && (
-                    <View style={styles.takesBadge}>
-                      <Text style={styles.takesBadgeText}>{recordedTakes.length}</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.dockBtnLabel}>TAKES</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Obturador */}
+            {/* Centro: Obturador REC */}
             <View style={styles.shutterCenterGroup}>
               {isRecording && (
                 <View style={styles.liveTimerPill}>
@@ -590,73 +583,71 @@ function PrompterScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.dockSideGroup}>
-              <TouchableOpacity
-                style={[styles.dockBtn, styles.dockBtnAccent, isRecording && styles.dockBtnHidden]}
-                disabled={isRecording}
-                onPress={() => openSettings(settingsTab)}
-              >
-                <Feather name="sliders" size={18} color={BRAND.gold} />
-                <Text style={[styles.dockBtnLabel, { color: BRAND.gold }]}>AJUSTES</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.dockBtn, isRecording && styles.dockBtnHidden]}
-                disabled={isRecording}
-                onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
-              >
-                <Ionicons name="camera-reverse-outline" size={20} color={BRAND.white} />
-                <Text style={styles.dockBtnLabel}>LENTE</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Direita: Ajustes (abre o modal com as 4 tabs: Rolagem, Visual, Câmera, Takes) */}
+            <TouchableOpacity
+              style={[
+                styles.minimalBtn,
+                styles.minimalBtnAccent,
+                isRecording && styles.dockBtnHidden,
+              ]}
+              disabled={isRecording}
+              onPress={() => setSettingsVisible(true)}
+            >
+              <Feather name="sliders" size={20} color={BRAND.gold} />
+              {recordedTakes.length > 0 && (
+                <View style={styles.takesBadge}>
+                  <Text style={styles.takesBadgeText}>{recordedTakes.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* MODAL COM ABAS: AJUSTES */}
+        {/* MODAL COM 4 ABAS: ROLAGEM | VISUAL | CÂMERA | TAKES */}
         <SettingsModal
           visible={settingsVisible}
           activeTab={settingsTab}
           onChangeTab={setSettingsTab}
           onClose={() => setSettingsVisible(false)}
           bottomInset={insets.bottom}
-          prompterMode={prompterMode}
-          onSelectMode={setPrompterMode}
+          scrollMode={scrollMode}
+          onChangeScrollMode={(mode) => {
+            setScrollMode(mode);
+            resetScroll();
+          }}
           speed={speed}
           onChangeSpeed={setSpeed}
-          micSensitivity={micSensitivity}
-          onChangeMicSensitivity={setMicSensitivity}
-          voiceLevel={voiceLevel}
-          isVoiceMode={isVoiceMode}
+          countdownSeconds={countdownSeconds}
+          onChangeCountdownSeconds={setCountdownSeconds}
+          isScrolling={isScrolling}
+          onTogglePreviewScroll={() => setIsScrolling((prev) => !prev)}
+          onResetScroll={resetScroll}
           fontSize={fontSize}
           onChangeFontSize={setFontSize}
+          textAlign={textAlign}
+          onChangeTextAlign={setTextAlign}
           bgOpacity={bgOpacity}
           onChangeBgOpacity={setBgOpacity}
           boxSizeMode={boxSizeMode}
           onChangeBoxSizeMode={setBoxSizeMode}
-          useCountdown={useCountdown}
-          onToggleCountdown={() => setUseCountdown((c) => !c)}
           facing={facing}
           onChangeFacing={setFacing}
+          takes={recordedTakes}
+          onShareTake={shareVideoFile}
+          onDeleteTake={handleDeleteTake}
         />
 
         {/* MODAL: EDITOR DE ROTEIRO */}
         <ScriptEditorModal
           visible={editorVisible}
           script={script}
+          topInset={insets.top}
+          bottomInset={insets.bottom}
           onChangeScript={saveScript}
           onDone={() => {
             setEditorVisible(false);
             resetScroll();
           }}
-        />
-
-        {/* MODAL: TAKES GRAVADOS */}
-        <TakesModal
-          visible={takesModalVisible}
-          takes={recordedTakes}
-          bottomInset={insets.bottom}
-          onClose={() => setTakesModalVisible(false)}
-          onShare={shareVideoFile}
         />
       </View>
     </View>
@@ -753,27 +744,43 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  // CONTAGEM REGRESSIVA
+  // CONTAGEM REGRESSIVA (MODAL)
   countdownOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
+    backgroundColor: 'rgba(4, 4, 11, 0.58)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 30,
   },
   countdownBox: {
-    width: 104,
-    height: 104,
-    backgroundColor: 'rgba(7, 7, 20, 0.88)',
+    minWidth: 170,
+    paddingVertical: 22,
+    paddingHorizontal: 28,
+    backgroundColor: 'rgba(7, 7, 20, 0.94)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: BRAND.gold,
   },
+  countdownLabel: {
+    fontFamily: BRAND.fontMono,
+    color: BRAND.lilac,
+    fontSize: 10,
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
   countdownNumber: {
     fontFamily: BRAND.fontDisplay,
     color: BRAND.gold,
-    fontSize: 54,
+    fontSize: 72,
     fontWeight: '700',
+    lineHeight: 82,
+  },
+  countdownCancel: {
+    fontFamily: BRAND.fontMono,
+    color: BRAND.muted,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    marginTop: 8,
   },
 
   // TOAST DE VÍDEO SALVO
@@ -815,6 +822,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
+  savedCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  savedCardDeleteBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: BRAND.radius,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.45)',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   savedCardShareBtn: {
     backgroundColor: BRAND.white,
     paddingHorizontal: 12,
@@ -829,99 +851,54 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  // HUD INFERIOR
+  // HUD INFERIOR ULTRA LIMPO
   bottomHud: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 28,
     alignItems: 'center',
   },
-  telemetryStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(7, 7, 20, 0.84)',
-    borderWidth: 1,
-    borderColor: BRAND.line,
-    marginBottom: 14,
-  },
-  telemetryCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  telemetryKey: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.dim,
-    fontSize: 9,
-    letterSpacing: 1,
-  },
-  telemetryVal: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.white,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  telemetryDivider: {
-    width: 1,
-    height: 14,
-    backgroundColor: BRAND.line,
-  },
-  dockRow: {
+  minimalDockRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    paddingHorizontal: 2,
+    maxWidth: 320,
   },
-  dockSideGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dockBtn: {
-    width: 58,
-    height: 54,
+  minimalBtn: {
+    width: 50,
+    height: 50,
     borderRadius: BRAND.radius,
-    backgroundColor: 'rgba(7, 7, 20, 0.84)',
+    backgroundColor: 'rgba(7, 7, 20, 0.78)',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 5,
     borderWidth: 1,
     borderColor: BRAND.line,
   },
-  dockBtnAccent: {
+  minimalBtnAccent: {
     borderColor: 'rgba(255, 199, 102, 0.45)',
-    backgroundColor: 'rgba(14, 13, 28, 0.92)',
+    backgroundColor: 'rgba(14, 13, 28, 0.88)',
   },
   dockBtnHidden: {
     opacity: 0,
   },
-  dockBtnLabel: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.muted,
-    fontSize: 8.5,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
   takesBadge: {
     position: 'absolute',
     top: -6,
-    right: -10,
+    right: -6,
     backgroundColor: BRAND.gold,
-    minWidth: 16,
-    height: 16,
-    paddingHorizontal: 3,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   takesBadgeText: {
     fontFamily: BRAND.fontMono,
     color: BRAND.ink,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
   },
   shutterCenterGroup: {
@@ -935,7 +912,7 @@ const styles = StyleSheet.create({
     borderColor: BRAND.rec,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    marginBottom: 8,
+    marginBottom: 10,
     gap: 6,
   },
   liveRedDot: {
@@ -952,9 +929,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   shutterOuter: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
     borderWidth: 2,
     borderColor: BRAND.white,
     justifyContent: 'center',
@@ -965,9 +942,9 @@ const styles = StyleSheet.create({
     borderColor: BRAND.rec,
   },
   shutterInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: BRAND.rec,
   },
   shutterInnerStop: {

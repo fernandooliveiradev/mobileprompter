@@ -44,8 +44,7 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      "expo-sharing",
-      "expo-audio"
+      "expo-sharing"
     ]
   }
 }

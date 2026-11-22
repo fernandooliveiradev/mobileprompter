@@ -9,13 +9,19 @@ import {
   Pressable,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { PROMPTER_MODES } from '../utils/scriptUtils';
 import { BRAND } from '../theme/brand';
+import { formatTime } from '../utils/scriptUtils';
 
 const TABS = [
-  { id: 'voice', num: '01', label: 'MODO & VOZ' },
-  { id: 'visual', num: '02', label: 'VISUAL' },
-  { id: 'camera', num: '03', label: 'CÂMERA' },
+  { id: 'scroll', label: 'ROLAGEM' },
+  { id: 'visual', label: 'VISUAL' },
+  { id: 'camera', label: 'CÂMERA' },
+  { id: 'takes', label: 'TAKES' },
+];
+
+const SCROLL_MODE_OPTIONS = [
+  { label: 'Contínuo', value: 'continuous' },
+  { label: 'Por Frases', value: 'phrases' },
 ];
 
 const OPACITY_OPTIONS = [
@@ -31,11 +37,29 @@ const BOX_SIZE_OPTIONS = [
   { label: 'Grande', value: 2 },
 ];
 
-const MIC_OPTIONS = [
-  { label: 'Baixa', value: 1 },
-  { label: 'Normal', value: 2 },
-  { label: 'Alta', value: 3 },
+const ALIGN_OPTIONS = [
+  { label: 'Esquerda', value: 'left', icon: 'align-left' },
+  { label: 'Centro', value: 'center', icon: 'align-center' },
+  { label: 'Direita', value: 'right', icon: 'align-right' },
 ];
+
+const COUNTDOWN_PRESETS = [
+  { label: 'OFF', value: 0 },
+  { label: '3S', value: 3 },
+  { label: '5S', value: 5 },
+  { label: '7S', value: 7 },
+  { label: '10S', value: 10 },
+];
+
+const SPEED_PRESETS = [
+  { label: '2.0', value: 2.0 },
+  { label: '3.4', value: 3.4 },
+  { label: '5.0', value: 5.0 },
+  { label: '7.5', value: 7.5 },
+  { label: '10', value: 10.0 },
+];
+
+const roundSpeed = (val) => Math.round(Math.min(10, Math.max(1, val)) * 10) / 10;
 
 export function SettingsModal({
   visible,
@@ -43,24 +67,32 @@ export function SettingsModal({
   onChangeTab,
   onClose,
   bottomInset,
-  prompterMode,
-  onSelectMode,
+  // Rolagem
+  scrollMode,
+  onChangeScrollMode,
   speed,
   onChangeSpeed,
-  micSensitivity,
-  onChangeMicSensitivity,
-  voiceLevel,
-  isVoiceMode,
+  countdownSeconds,
+  onChangeCountdownSeconds,
+  isScrolling,
+  onTogglePreviewScroll,
+  onResetScroll,
+  // Visual
   fontSize,
   onChangeFontSize,
+  textAlign,
+  onChangeTextAlign,
   bgOpacity,
   onChangeBgOpacity,
   boxSizeMode,
   onChangeBoxSizeMode,
-  useCountdown,
-  onToggleCountdown,
+  // Câmera
   facing,
   onChangeFacing,
+  // Takes
+  takes = [],
+  onShareTake,
+  onDeleteTake,
 }) {
   return (
     <Modal
@@ -78,157 +110,221 @@ export function SettingsModal({
             <View>
               <View style={styles.eyebrowRow}>
                 <View style={styles.eyebrowDot} />
-                <Text style={styles.eyebrow}>ESTÚDIO · CONFIGURAÇÃO</Text>
+                <Text style={styles.eyebrow}>OLV PROMPTER · CONFIGURAÇÃO</Text>
               </View>
-              <Text style={styles.headerTitle}>Ajustes de gravação</Text>
+              <Text style={styles.headerTitle}>Ajustes do estúdio</Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
               <Feather name="x" size={16} color={BRAND.white} />
             </TouchableOpacity>
           </View>
 
-          {/* Tabs com linha editorial (sem pílula genérica) */}
+          {/* 4 Tabs em linha */}
           <View style={styles.tabsBar}>
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
+              const badge = tab.id === 'takes' && takes.length > 0 ? ` (${takes.length})` : '';
               return (
                 <TouchableOpacity
                   key={tab.id}
                   style={[styles.tabBtn, isActive && styles.tabBtnActive]}
                   onPress={() => onChangeTab(tab.id)}
                 >
-                  <Text style={[styles.tabNum, isActive && styles.tabNumActive]}>
-                    {tab.num}
-                  </Text>
                   <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                     {tab.label}
+                    {badge}
                   </Text>
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          {/* Conteúdo da Aba */}
           <ScrollView
             style={styles.tabContent}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.tabContentInner}
           >
-            {activeTab === 'voice' && (
+            {activeTab === 'scroll' && (
               <>
-                <View style={styles.listBlock}>
-                  {PROMPTER_MODES.map((mode, idx) => {
-                    const selected = prompterMode === mode.id;
-                    const num = String(idx + 1).padStart(2, '0');
-                    return (
-                      <TouchableOpacity
-                        key={mode.id}
-                        style={[
-                          styles.modeRow,
-                          selected && styles.modeRowSelected,
-                          idx === PROMPTER_MODES.length - 1 && styles.rowNoBorder,
-                        ]}
-                        onPress={() => onSelectMode(mode.id)}
-                      >
-                        <Text style={[styles.rowNum, selected && styles.rowNumActive]}>
-                          {num}
-                        </Text>
-                        <View style={styles.modeTextCol}>
+                {/* Estilo de rolagem: Contínuo ou Por Frases */}
+                <View style={styles.controlBlock}>
+                  <Text style={styles.controlTitle}>Estilo de rolagem</Text>
+                  <Text style={[styles.controlSub, { marginBottom: 10 }]}>
+                    {scrollMode === 'phrases'
+                      ? 'Exibe frase por frase no ritmo do timer (toque para pular)'
+                      : 'Texto contínuo rolando suavemente sem pausas'}
+                  </Text>
+                  <View style={styles.segmentedRow}>
+                    {SCROLL_MODE_OPTIONS.map((opt) => {
+                      const active = scrollMode === opt.value;
+                      return (
+                        <TouchableOpacity
+                          key={opt.value}
+                          style={[styles.segmentBtn, active && styles.segmentBtnGold]}
+                          onPress={() => onChangeScrollMode(opt.value)}
+                        >
                           <Text
                             style={[
-                              styles.modeTitle,
-                              selected && styles.modeTitleSelected,
+                              styles.segmentText,
+                              active && styles.segmentTextGold,
                             ]}
                           >
-                            {mode.label}
+                            {opt.label.toUpperCase()}
                           </Text>
-                          <Text style={styles.modeDesc}>{mode.description}</Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.radioMark,
-                            selected && styles.radioMarkSelected,
-                          ]}
-                        />
-                      </TouchableOpacity>
-                    );
-                  })}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
 
-                {/* Ritmo / Velocidade */}
+                {/* Velocidade granular (passos de 0.2) */}
                 <View style={styles.controlBlock}>
                   <View style={styles.controlRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.controlTitle}>
-                        {prompterMode === 'voice_phrases'
-                          ? 'Ritmo das frases'
-                          : 'Velocidade de rolagem'}
-                      </Text>
+                      <Text style={styles.controlTitle}>Velocidade de rolagem</Text>
                       <Text style={styles.controlSub}>
-                        Cadência do texto acompanhando sua leitura
+                        Ajuste fino de 0.2 em 0.2 (salvo automaticamente)
                       </Text>
                     </View>
                     <View style={styles.stepper}>
                       <TouchableOpacity
                         style={styles.stepperBtn}
-                        onPress={() => onChangeSpeed(Math.max(1, speed - 1))}
+                        onPress={() => onChangeSpeed(roundSpeed(speed - 0.2))}
                       >
                         <Feather name="minus" size={14} color={BRAND.white} />
                       </TouchableOpacity>
-                      <Text style={styles.stepperVal}>{speed}X</Text>
+                      <Text style={styles.stepperVal}>{speed.toFixed(1)}X</Text>
                       <TouchableOpacity
                         style={styles.stepperBtn}
-                        onPress={() => onChangeSpeed(Math.min(10, speed + 1))}
+                        onPress={() => onChangeSpeed(roundSpeed(speed + 0.2))}
                       >
                         <Feather name="plus" size={14} color={BRAND.white} />
                       </TouchableOpacity>
                     </View>
                   </View>
+
                   <View style={styles.levelTrack}>
                     <View style={[styles.levelFill, { width: `${speed * 10}%` }]} />
                   </View>
+
+                  {/* Atalhos rápidos para chegar perto e refinar de 0.2 em 0.2 */}
+                  <View style={[styles.segmentedRow, { marginTop: 10 }]}>
+                    {SPEED_PRESETS.map((opt) => {
+                      const active = Math.abs(speed - opt.value) < 0.05;
+                      return (
+                        <TouchableOpacity
+                          key={opt.label}
+                          style={[styles.segmentBtn, active && styles.segmentBtnGold]}
+                          onPress={() => onChangeSpeed(opt.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              active && styles.segmentTextGold,
+                            ]}
+                          >
+                            {opt.label}X
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* Testar velocidade ao vivo */}
+                  <View style={[styles.segmentedRow, { marginTop: 12 }]}>
+                    <TouchableOpacity
+                      style={[
+                        styles.segmentBtn,
+                        styles.segmentBtnRow,
+                        isScrolling && styles.segmentBtnGold,
+                      ]}
+                      onPress={onTogglePreviewScroll}
+                    >
+                      <Feather
+                        name={isScrolling ? 'pause' : 'play'}
+                        size={12}
+                        color={isScrolling ? BRAND.gold : BRAND.white}
+                      />
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          isScrolling ? styles.segmentTextGold : styles.segmentTextActive,
+                        ]}
+                      >
+                        {isScrolling ? 'PAUSAR TESTE' : 'TESTAR ROLAGEM'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.segmentBtn, styles.segmentBtnRow, { flex: 0.65 }]}
+                      onPress={onResetScroll}
+                    >
+                      <Feather name="rotate-ccw" size={12} color={BRAND.muted} />
+                      <Text style={styles.segmentText}>INÍCIO</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                {/* Sensibilidade do Microfone */}
-                {isVoiceMode && (
-                  <View style={styles.controlBlock}>
-                    <View style={styles.controlRowHeader}>
-                      <Text style={styles.controlTitle}>Sensibilidade do microfone</Text>
-                      <View style={styles.liveMeterWrap}>
-                        <View
-                          style={[
-                            styles.liveMeterFill,
-                            { width: `${Math.round(voiceLevel * 100)}%` },
-                          ]}
-                        />
-                      </View>
+                {/* Contagem regressiva 0 / 3s a 10s */}
+                <View style={styles.controlBlock}>
+                  <View style={styles.controlRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.controlTitle}>Contagem regressiva</Text>
+                      <Text style={styles.controlSub}>
+                        Tempo antes de iniciar a gravação (3s a 10s)
+                      </Text>
                     </View>
-                    <View style={styles.segmentedRow}>
-                      {MIC_OPTIONS.map((opt) => {
-                        const active = micSensitivity === opt.value;
-                        return (
-                          <TouchableOpacity
-                            key={opt.value}
-                            style={[
-                              styles.segmentBtn,
-                              active && styles.segmentBtnGold,
-                            ]}
-                            onPress={() => onChangeMicSensitivity(opt.value)}
-                          >
-                            <Text
-                              style={[
-                                styles.segmentText,
-                                active && styles.segmentTextGold,
-                              ]}
-                            >
-                              {opt.label.toUpperCase()}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
+                    <View style={styles.stepper}>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() =>
+                          onChangeCountdownSeconds(
+                            countdownSeconds <= 3 ? 0 : countdownSeconds - 1
+                          )
+                        }
+                      >
+                        <Feather name="minus" size={14} color={BRAND.white} />
+                      </TouchableOpacity>
+                      <Text style={styles.stepperVal}>
+                        {countdownSeconds === 0 ? 'OFF' : `${countdownSeconds}S`}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() =>
+                          onChangeCountdownSeconds(
+                            countdownSeconds === 0
+                              ? 3
+                              : Math.min(10, countdownSeconds + 1)
+                          )
+                        }
+                      >
+                        <Feather name="plus" size={14} color={BRAND.white} />
+                      </TouchableOpacity>
                     </View>
                   </View>
-                )}
+
+                  <View style={[styles.segmentedRow, { marginTop: 12 }]}>
+                    {COUNTDOWN_PRESETS.map((opt) => {
+                      const active = countdownSeconds === opt.value;
+                      return (
+                        <TouchableOpacity
+                          key={opt.label}
+                          style={[styles.segmentBtn, active && styles.segmentBtnGold]}
+                          onPress={() => onChangeCountdownSeconds(opt.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              active && styles.segmentTextGold,
+                            ]}
+                          >
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
               </>
             )}
 
@@ -257,6 +353,43 @@ export function SettingsModal({
                         <Feather name="plus" size={14} color={BRAND.white} />
                       </TouchableOpacity>
                     </View>
+                  </View>
+                </View>
+
+                <View style={styles.controlBlock}>
+                  <Text style={styles.controlTitle}>Alinhamento do texto</Text>
+                  <Text style={[styles.controlSub, { marginBottom: 10 }]}>
+                    Escolha onde fica mais natural para o seu olhar na câmera
+                  </Text>
+                  <View style={styles.segmentedRow}>
+                    {ALIGN_OPTIONS.map((opt) => {
+                      const active = textAlign === opt.value;
+                      return (
+                        <TouchableOpacity
+                          key={opt.value}
+                          style={[
+                            styles.segmentBtn,
+                            styles.segmentBtnRow,
+                            active && styles.segmentBtnActive,
+                          ]}
+                          onPress={() => onChangeTextAlign(opt.value)}
+                        >
+                          <Feather
+                            name={opt.icon}
+                            size={13}
+                            color={active ? BRAND.gold : BRAND.muted}
+                          />
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              active && styles.segmentTextActive,
+                            ]}
+                          >
+                            {opt.label.toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
 
@@ -321,33 +454,6 @@ export function SettingsModal({
             {activeTab === 'camera' && (
               <>
                 <View style={styles.controlBlock}>
-                  <View style={styles.controlRow}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={styles.controlTitle}>Contagem regressiva</Text>
-                      <Text style={styles.controlSub}>
-                        3 segundos para alinhar o olhar antes de iniciar
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[
-                        styles.toggleBtn,
-                        useCountdown && styles.toggleBtnOn,
-                      ]}
-                      onPress={onToggleCountdown}
-                    >
-                      <Text
-                        style={[
-                          styles.toggleBtnText,
-                          useCountdown && styles.toggleBtnTextOn,
-                        ]}
-                      >
-                        {useCountdown ? '3S · ON' : 'OFF'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.controlBlock}>
                   <Text style={styles.controlTitle}>Lente da câmera</Text>
                   <Text style={[styles.controlSub, { marginBottom: 10 }]}>
                     Frontal espelhada para gravar lendo o teleprompter
@@ -396,6 +502,57 @@ export function SettingsModal({
                 </View>
               </>
             )}
+
+            {activeTab === 'takes' && (
+              <>
+                {takes.length === 0 ? (
+                  <View style={styles.emptyBox}>
+                    <Text style={styles.emptyNum}>00</Text>
+                    <Text style={styles.emptyText}>
+                      Nenhum vídeo gravado ainda nesta sessão.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.takesList}>
+                    {takes.map((take, idx) => {
+                      const num = String(takes.length - idx).padStart(2, '0');
+                      return (
+                        <View key={take.id} style={styles.takeItem}>
+                          <View style={styles.takeInfo}>
+                            <Text style={styles.takeNum}>{num}</Text>
+                            <View>
+                              <Text style={styles.takeName}>
+                                Take #{takes.length - idx} · {take.createdAt}
+                              </Text>
+                              <Text style={styles.takeSub}>
+                                {formatTime(take.duration)}
+                                {take.savedToGallery ? ' · NA GALERIA' : ''}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.takeActions}>
+                            <TouchableOpacity
+                              style={styles.deleteBtn}
+                              onPress={() => onDeleteTake(take)}
+                            >
+                              <Feather name="trash-2" size={14} color={BRAND.rec} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.shareBtn}
+                              onPress={() => onShareTake(take.uri)}
+                            >
+                              <Text style={styles.shareBtnText}>ENVIAR ↗</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -416,7 +573,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.ink,
     borderTopWidth: 1,
     borderTopColor: BRAND.lineStrong,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingTop: 16,
     maxHeight: '66%',
   },
@@ -424,7 +581,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   eyebrowRow: {
     flexDirection: 'row',
@@ -470,10 +627,8 @@ const styles = StyleSheet.create({
   },
   tabBtn: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
     paddingVertical: 11,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
@@ -482,20 +637,12 @@ const styles = StyleSheet.create({
     borderBottomColor: BRAND.gold,
     backgroundColor: 'rgba(134, 87, 255, 0.08)',
   },
-  tabNum: {
-    fontFamily: BRAND.fontMono,
-    fontSize: 10,
-    color: BRAND.dim,
-  },
-  tabNumActive: {
-    color: BRAND.gold,
-  },
   tabLabel: {
     fontFamily: BRAND.fontMono,
     color: BRAND.muted,
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '700',
-    letterSpacing: 0.9,
+    letterSpacing: 0.7,
   },
   tabLabelActive: {
     color: BRAND.white,
@@ -506,66 +653,6 @@ const styles = StyleSheet.create({
   tabContentInner: {
     gap: 12,
     paddingBottom: 8,
-  },
-  listBlock: {
-    borderWidth: 1,
-    borderColor: BRAND.line,
-    backgroundColor: BRAND.panel,
-  },
-  modeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.line,
-    borderLeftWidth: 2,
-    borderLeftColor: 'transparent',
-  },
-  modeRowSelected: {
-    backgroundColor: BRAND.violetSoft,
-    borderLeftColor: BRAND.gold,
-  },
-  rowNoBorder: {
-    borderBottomWidth: 0,
-  },
-  rowNum: {
-    fontFamily: BRAND.fontMono,
-    fontSize: 11,
-    color: BRAND.dim,
-  },
-  rowNumActive: {
-    color: BRAND.gold,
-  },
-  modeTextCol: {
-    flex: 1,
-  },
-  modeTitle: {
-    fontFamily: BRAND.fontDisplay,
-    color: BRAND.white,
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
-  modeTitleSelected: {
-    color: '#FFFFFF',
-  },
-  modeDesc: {
-    color: BRAND.muted,
-    fontSize: 11,
-    marginTop: 2,
-    lineHeight: 15,
-  },
-  radioMark: {
-    width: 10,
-    height: 10,
-    borderWidth: 1,
-    borderColor: BRAND.dim,
-  },
-  radioMarkSelected: {
-    backgroundColor: BRAND.gold,
-    borderColor: BRAND.gold,
   },
   controlBlock: {
     backgroundColor: BRAND.panel,
@@ -578,12 +665,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-  },
-  controlRowHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
   },
   controlTitle: {
     fontFamily: BRAND.fontDisplay,
@@ -630,18 +711,6 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: BRAND.lilac,
   },
-  liveMeterWrap: {
-    width: 72,
-    height: 4,
-    backgroundColor: BRAND.ink,
-    borderWidth: 1,
-    borderColor: BRAND.line,
-    overflow: 'hidden',
-  },
-  liveMeterFill: {
-    height: '100%',
-    backgroundColor: BRAND.gold,
-  },
   segmentedRow: {
     flexDirection: 'row',
     gap: 6,
@@ -656,6 +725,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BRAND.line,
   },
+  segmentBtnRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
   segmentBtnActive: {
     backgroundColor: BRAND.violetSoft,
     borderColor: BRAND.lilac,
@@ -669,34 +742,12 @@ const styles = StyleSheet.create({
     color: BRAND.muted,
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.9,
+    letterSpacing: 0.8,
   },
   segmentTextActive: {
     color: BRAND.white,
   },
   segmentTextGold: {
-    color: BRAND.gold,
-  },
-  toggleBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: BRAND.radius,
-    backgroundColor: BRAND.ink,
-    borderWidth: 1,
-    borderColor: BRAND.line,
-  },
-  toggleBtnOn: {
-    backgroundColor: BRAND.goldSoft,
-    borderColor: BRAND.gold,
-  },
-  toggleBtnText: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  toggleBtnTextOn: {
     color: BRAND.gold,
   },
   infoFoot: {
@@ -715,5 +766,87 @@ const styles = StyleSheet.create({
     color: BRAND.muted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  emptyBox: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    borderWidth: 1,
+    borderColor: BRAND.line,
+    backgroundColor: BRAND.panel,
+    gap: 6,
+  },
+  emptyNum: {
+    fontFamily: BRAND.fontMono,
+    fontSize: 24,
+    color: BRAND.dim,
+  },
+  emptyText: {
+    color: BRAND.muted,
+    fontSize: 13,
+  },
+  takesList: {
+    borderTopWidth: 1,
+    borderTopColor: BRAND.line,
+  },
+  takeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.line,
+  },
+  takeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  takeNum: {
+    fontFamily: BRAND.fontMono,
+    fontSize: 12,
+    color: BRAND.gold,
+  },
+  takeName: {
+    fontFamily: BRAND.fontDisplay,
+    color: BRAND.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  takeSub: {
+    fontFamily: BRAND.fontMono,
+    color: BRAND.muted,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    marginTop: 2,
+  },
+  takeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: BRAND.radius,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareBtn: {
+    borderWidth: 1,
+    borderColor: BRAND.lineStrong,
+    backgroundColor: BRAND.panel,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: BRAND.radius,
+  },
+  shareBtnText: {
+    fontFamily: BRAND.fontMono,
+    color: BRAND.lilac,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
 });

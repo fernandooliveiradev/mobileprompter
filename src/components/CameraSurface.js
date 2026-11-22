@@ -1,17 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
-import { Feather } from '@expo/vector-icons';
 import { BRAND } from '../theme/brand';
 
-export function CameraSurface({
-  cameraRef,
-  facing,
-  isVoiceMode,
-  isScrolling,
-  simulatedSpeaking,
-  onToggleSimulatedSpeaking,
-}) {
+export function CameraSurface({ cameraRef, facing }) {
   if (Platform.OS !== 'web') {
     return (
       <CameraView
@@ -28,13 +20,11 @@ export function CameraSurface({
 
   return (
     <View style={styles.webCameraStage}>
-      {/* Grade técnica 3x3 sutil */}
       <View style={styles.gridH1} pointerEvents="none" />
       <View style={styles.gridH2} pointerEvents="none" />
       <View style={styles.gridV1} pointerEvents="none" />
       <View style={styles.gridV2} pointerEvents="none" />
 
-      {/* Miras de canto da câmera */}
       <View style={[styles.cornerMark, styles.cornerTL]} pointerEvents="none" />
       <View style={[styles.cornerMark, styles.cornerTR]} pointerEvents="none" />
       <View style={[styles.cornerMark, styles.cornerBL]} pointerEvents="none" />
@@ -52,34 +42,6 @@ export function CameraSurface({
           olv<Text style={styles.brandMarkLight}> prompter</Text>
         </Text>
         <Text style={styles.domainText}>fernandodeoliveira.pro</Text>
-
-        {isVoiceMode && (
-          <TouchableOpacity
-            style={[
-              styles.simVoiceBtn,
-              simulatedSpeaking && styles.simVoiceBtnActive,
-            ]}
-            onPress={onToggleSimulatedSpeaking}
-          >
-            <Feather
-              name={simulatedSpeaking ? 'mic' : 'mic-off'}
-              size={13}
-              color={simulatedSpeaking ? BRAND.ink : BRAND.white}
-            />
-            <Text
-              style={[
-                styles.simVoiceBtnText,
-                simulatedSpeaking && styles.simVoiceBtnTextActive,
-              ]}
-            >
-              {simulatedSpeaking
-                ? isScrolling
-                  ? 'SIMULANDO FALA'
-                  : 'VOZ ATIVA · DÊ PLAY'
-                : 'SIMULAR FALA (WEB)'}
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -199,31 +161,5 @@ const styles = StyleSheet.create({
     color: BRAND.dim,
     marginTop: 4,
     letterSpacing: 0.6,
-  },
-  simVoiceBtn: {
-    marginTop: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: BRAND.panel,
-    borderWidth: 1,
-    borderColor: BRAND.lineStrong,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: BRAND.radius,
-  },
-  simVoiceBtnActive: {
-    backgroundColor: BRAND.gold,
-    borderColor: BRAND.gold,
-  },
-  simVoiceBtnText: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.white,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  simVoiceBtnTextActive: {
-    color: BRAND.ink,
   },
 });

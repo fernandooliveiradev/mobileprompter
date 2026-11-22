@@ -6,28 +6,40 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { DEFAULT_SCRIPT, formatTime, getScriptStats } from '../utils/scriptUtils';
 import { BRAND } from '../theme/brand';
 
-export function ScriptEditorModal({ visible, script, onChangeScript, onDone }) {
+export function ScriptEditorModal({
+  visible,
+  script,
+  topInset = 0,
+  bottomInset = 0,
+  onChangeScript,
+  onDone,
+}) {
   const stats = getScriptStats(script);
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onDone}>
-      <SafeAreaView style={styles.modalContainer}>
+      <KeyboardAvoidingView
+        style={[
+          styles.modalContainer,
+          {
+            paddingTop: Math.max(topInset + 8, 18),
+            paddingBottom: Math.max(bottomInset, 12),
+          },
+        ]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* Linha 1: Título + Botões (sempre com folga, nunca cortados) */}
         <View style={styles.modalHeader}>
-          <View>
-            <View style={styles.eyebrowRow}>
-              <View style={styles.eyebrowDot} />
-              <Text style={styles.eyebrow}>
-                {stats.words} PALAVRAS · {stats.phrases} FRASES · ~{formatTime(stats.estimatedSec)}
-              </Text>
-            </View>
-            <Text style={styles.modalTitle}>Roteiro</Text>
-          </View>
+          <Text style={styles.modalTitle} numberOfLines={1}>
+            Roteiro
+          </Text>
 
           <View style={styles.modalHeaderActions}>
             <TouchableOpacity
@@ -45,9 +57,11 @@ export function ScriptEditorModal({ visible, script, onChangeScript, onDone }) {
           </View>
         </View>
 
-        <View style={styles.editorTipBox}>
-          <Text style={styles.editorTip}>
-            Separe cada frase com ponto final ou quebra de linha para o modo Frases (Voz) dividir com precisão.
+        {/* Linha 2: Telemetria do roteiro em faixa própria */}
+        <View style={styles.statsBar}>
+          <View style={styles.eyebrowDot} />
+          <Text style={styles.statsText} numberOfLines={1}>
+            {stats.words} PALAVRAS · {stats.phrases} FRASES · ~{formatTime(stats.estimatedSec)}
           </Text>
         </View>
 
@@ -60,7 +74,7 @@ export function ScriptEditorModal({ visible, script, onChangeScript, onDone }) {
           placeholderTextColor={BRAND.dim}
           textAlignVertical="top"
         />
-      </SafeAreaView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -74,30 +88,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.line,
-  },
-  eyebrowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  eyebrowDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: BRAND.gold,
-  },
-  eyebrow: {
-    fontFamily: BRAND.fontMono,
-    color: BRAND.lilac,
-    fontSize: 10,
-    letterSpacing: 1.1,
+    gap: 12,
   },
   modalTitle: {
+    flex: 1,
     fontFamily: BRAND.fontDisplay,
     color: BRAND.white,
     fontSize: 22,
@@ -106,7 +104,9 @@ const styles = StyleSheet.create({
   },
   modalHeaderActions: {
     flexDirection: 'row',
-    gap: 6,
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 8,
   },
   secondaryBtn: {
     width: 36,
@@ -133,21 +133,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
   },
-  editorTipBox: {
+  statsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.line,
-    backgroundColor: BRAND.panel,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    backgroundColor: BRAND.deep,
   },
-  editorTip: {
-    color: BRAND.muted,
-    fontSize: 12,
-    lineHeight: 17,
+  eyebrowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: BRAND.gold,
+  },
+  statsText: {
+    fontFamily: BRAND.fontMono,
+    color: BRAND.lilac,
+    fontSize: 10,
+    letterSpacing: 1.1,
   },
   scriptInput: {
     flex: 1,
-    padding: 18,
+    padding: 16,
     color: BRAND.white,
     fontSize: 18,
     lineHeight: 28,

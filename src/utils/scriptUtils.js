@@ -1,45 +1,21 @@
 export const STORAGE_KEY = '@mobileprompter_script_v3';
 
-export const DEFAULT_SCRIPT = `Olá! Agora o OLV Prompter ocupa 100% da tela e tem modo de rolagem por voz!
+export const DEFAULT_SCRIPT = `Oi! Que bom ter você por aqui no OLV Prompter.
 
-No modo Frases por Voz, você vai falando esta frase em destaque bem colada na câmera frontal.
+Respire fundo, olhe direto para a câmera e fale no seu ritmo natural, como se estivesse conversando com um amigo.
 
-Assim que terminar de falar a frase, ela passa automaticamente para a próxima!
+Você pode ajustar a velocidade, o tamanho da letra e o alinhamento do texto quando quiser, direto nos ajustes.
 
-Se você fizer uma pausa para respirar ou pensar, o teleprompter espera por você sem correr na frente.
+Quando se sentir pronto, é só apertar o botão vermelho e mandar ver no seu vídeo!`;
 
-Você também pode tocar em qualquer frase na tela para pular ou voltar quando quiser!`;
-
-export const PROMPTER_MODES = [
-  {
-    id: 'voice_phrases',
-    label: 'Frases (Voz)',
-    shortLabel: 'Frases',
-    icon: 'mic',
-    description: 'Avança frase por frase conforme você fala e espera nas pausas.',
-  },
-  {
-    id: 'voice_scroll',
-    label: 'Contínuo (Voz)',
-    shortLabel: 'Contínuo',
-    icon: 'activity',
-    description: 'Rola o texto suavemente apenas enquanto detecta sua voz.',
-  },
-  {
-    id: 'auto_scroll',
-    label: 'Auto (Timer)',
-    shortLabel: 'Timer',
-    icon: 'clock',
-    description: 'Rolagem automática em velocidade constante sem usar o microfone.',
-  },
-];
-
-// Divide o roteiro em frases confortáveis para leitura próxima à lente
 export function splitScriptIntoPhrases(text) {
-  if (!text || !text.trim()) return ['(Roteiro vazio - toque em Roteiro para editar)'];
+  if (!text || !text.trim()) {
+    return ['(Roteiro vazio — toque em Roteiro para escrever)'];
+  }
+
   const rawLines = text
     .split(/\n+/)
-    .map((l) => l.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
   const phrases = [];
@@ -80,6 +56,7 @@ export function splitScriptIntoPhrases(text) {
       }
     }
   }
+
   return phrases.length > 0 ? phrases : ['(Roteiro vazio)'];
 }
 
@@ -98,7 +75,6 @@ export function getScriptStats(text) {
   }
   const words = trimmed.split(/\s+/).length;
   const phrases = splitScriptIntoPhrases(trimmed).length;
-  // ~140 palavras por minuto (~2.33 palavras/seg)
-  const estimatedSec = Math.max(1, Math.round(words / 2.33));
+  const estimatedSec = Math.max(1, Math.round(words / 2.25));
   return { words, phrases, estimatedSec };
 }
