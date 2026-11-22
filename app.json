@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MobilePrompter",
+    "name": "OLV Prompter",
     "slug": "mobileprompter",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,7 +12,7 @@
     "android": {
       "package": "com.fernandopaglacci.mobileprompter",
       "adaptiveIcon": {
-        "backgroundColor": "#090D16",
+        "backgroundColor": "#070714",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -31,16 +31,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Permitir que o MobilePrompter acesse sua câmera.",
-          "microphonePermission": "Permitir que o MobilePrompter acesse seu microfone.",
+          "cameraPermission": "Permitir que o OLV Prompter acesse sua câmera.",
+          "microphonePermission": "Permitir que o OLV Prompter acesse seu microfone.",
           "recordAudioAndroid": true
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Permitir que o MobilePrompter acesse suas fotos.",
-          "savePhotosPermission": "Permitir que o MobilePrompter salve os vídeos gravados na galeria.",
+          "photosPermission": "Permitir que o OLV Prompter acesse suas fotos.",
+          "savePhotosPermission": "Permitir que o OLV Prompter salve os vídeos gravados na galeria.",
           "isAccessMediaLocationEnabled": true
         }
       ],
